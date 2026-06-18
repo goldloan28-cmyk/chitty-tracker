@@ -37,6 +37,28 @@ function saveState(s) {
   try { localStorage.setItem("dct-v2", JSON.stringify(s)); } catch {}
 }
 
+// ─── Google Sheets backup ───────────────────────────────────────────────────
+const SHEETS_BACKUP_URL = "https://script.google.com/macros/s/AKfycbyObJMda2lvKzThZMpdHQ2rKcoQLL4E9RATX1ipQt-AK26Ny8cqSKGf77-5DeYWyInh/exec";
+
+let syncTimer = null;
+function syncToSheets(data, onStatus) {
+  if (!SHEETS_BACKUP_URL) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    onStatus && onStatus("syncing");
+    fetch(SHEETS_BACKUP_URL, {
+      method: "POST",
+      mode: "no-cors", // Apps Script web apps don't return CORS headers; fire-and-forget
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify(data),
+    }).then(() => {
+      onStatus && onStatus("synced");
+    }).catch(() => {
+      onStatus && onStatus("error");
+    });
+  }, 1200); // debounce: wait 1.2s after last change before syncing
+}
+
 const TOTAL_DAYS = 100;
 
 // ─── palette ────────────────────────────────────────────────────────────────
@@ -175,8 +197,12 @@ export default function App() {
   const [detailId, setDetailId] = useState(null);
   const [form, setForm] = useState({ name: "", phone: "", dailyAmt: "", lumpSum: "", startDate: todayStr() });
   const [toast, setToast] = useState(null);
+  const [syncStatus, setSyncStatus] = useState("idle"); // idle | syncing | synced | error
 
   useEffect(() => { saveState({ members, nextId }); }, [members, nextId]);
+  useEffect(() => {
+    if (members.length > 0) syncToSheets({ members }, setSyncStatus);
+  }, [members]);
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(null), 2800); return () => clearTimeout(t); } }, [toast]);
 
   const today = todayStr();
@@ -262,6 +288,17 @@ export default function App() {
       <div className="hdr">
         <div className="hdr-logo">DailyChit <span>Collection Tracker</span></div>
         <div className="hdr-right">
+          {SHEETS_BACKUP_URL && (
+            <span style={{
+              fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 20,
+              background: "rgba(255,255,255,0.12)", color: "white", display: "flex", alignItems: "center", gap: 5,
+            }}>
+              {syncStatus === "syncing" && <>🔄 Syncing…</>}
+              {syncStatus === "synced" && <>✅ Backed up</>}
+              {syncStatus === "error" && <>⚠️ Sync failed</>}
+              {syncStatus === "idle" && <>☁️ Backup ready</>}
+            </span>
+          )}
           <div className="tabs">
             {[["today","Today"],["members","Members"]].map(([v,l]) => (
               <button key={v} className={`tab${tab===v?" on":""}`} onClick={()=>setTab(v)}>{l}</button>
